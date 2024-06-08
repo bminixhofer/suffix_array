@@ -12,22 +12,38 @@ use super::utils::*;
 
 /// Suffix array for byte string.
 #[derive(Clone)]
-pub struct SuffixArray<'a> {
-    s: &'a [u8],
+pub struct SuffixArray {
+    s: Vec<u8>,
     sa: Vec<u32>,
     bkt: Option<Vec<u32>>,
 }
 
-impl<'a> SuffixArray<'a> {
+fn binary_search<T, F>(xs: &[T], mut pred: F) -> usize
+where
+    F: FnMut(&T) -> bool,
+{
+    let (mut left, mut right) = (0, xs.len());
+    while left < right {
+        let mid = (left + right) / 2;
+        if pred(&xs[mid]) {
+            right = mid;
+        } else {
+            left = mid + 1;
+        }
+    }
+    left
+}
+
+impl SuffixArray {
     // Construct new suffix array for given byte string.
-    pub fn new(s: &'a [u8]) -> Self {
+    pub fn new(s: Vec<u8>) -> Self {
         let mut sa = vec![0; s.len() + 1];
-        saca(s, &mut sa[..]);
+        saca(&s, &mut sa[..]);
         SuffixArray { s, sa, bkt: None }
     }
 
     // Construct suffix array in place.
-    pub fn set(&mut self, s: &'a [u8]) {
+    pub fn set(&mut self, s: &[u8]) {
         self.sa.resize(s.len() + 1, 0);
         saca(s, &mut self.sa[..]);
     }
@@ -47,14 +63,18 @@ impl<'a> SuffixArray<'a> {
         self.len() == 0
     }
 
+    pub fn to_parts(&self) -> (&[u8], &[u32]) {
+        (&self.s, &self.sa)
+    }
+
     /// Take out the suffix array and its corresponding byte string.
-    pub fn into_parts(self) -> (&'a [u8], Vec<u32>) {
+    pub fn into_parts(self) -> (Vec<u8>, Vec<u32>) {
         (self.s, self.sa)
     }
 
     /// Compose existed suffix array and its corresponding byte string
     /// together, and checks the integrity.
-    pub fn from_parts(s: &'a [u8], sa: Vec<u32>) -> Option<Self> {
+    pub fn from_parts(s: Vec<u8>, sa: Vec<u32>) -> Option<Self> {
         let compose = SuffixArray { s, sa, bkt: None };
         if compose.check_integrity() {
             Some(compose)
@@ -65,7 +85,7 @@ impl<'a> SuffixArray<'a> {
 
     /// Compose existed suffix array and its corresponding byte string
     /// together without integrity check.
-    pub unsafe fn unchecked_from_parts(s: &'a [u8], sa: Vec<u32>) -> Self {
+    pub unsafe fn unchecked_from_parts(s: Vec<u8>, sa: Vec<u32>) -> Self {
         SuffixArray { s, sa, bkt: None }
     }
 
@@ -160,9 +180,23 @@ impl<'a> SuffixArray<'a> {
         }
     }
 
+    pub fn find_region(&self, pat: &[u8]) -> (usize, usize) {
+        let bucket = self.get_bucket(pat);
+
+        let s = &self.s;
+        let sa = &self.sa[bucket.clone()];
+
+        let start = binary_search(&sa, |&i| pat <= &s[i as usize..]);
+        let end = start + binary_search(&sa[start..], |&i| {
+            !s[i as usize..].starts_with(pat)
+        });
+
+        (bucket.start + start, bucket.start + end)
+    }
+
     /// Test if it contains the given pattern.
     pub fn contains(&self, pat: &[u8]) -> bool {
-        let s = self.s;
+        let s = &self.s;
         let sa = &self.sa[self.get_bucket(pat)];
 
         sa.binary_search_by_key(&pat, |&i| trunc(&s[i as usize..], pat.len()))
@@ -171,7 +205,7 @@ impl<'a> SuffixArray<'a> {
 
     /// Search for all the unsorted occurrence of given pattern (can overlap).
     pub fn search_all(&self, pat: &[u8]) -> &[u32] {
-        let s = self.s;
+        let s = &self.s;
         let sa = if pat.len() > 0 {
             &self.sa[self.get_bucket(pat)]
         } else {
@@ -205,7 +239,7 @@ impl<'a> SuffixArray<'a> {
 
     /// Search for a sub-string that has the longest common prefix of the given pattern.
     pub fn search_lcp(&self, pat: &[u8]) -> Range<usize> {
-        let s = self.s;
+        let s = &self.s;
         let sa = &self.sa[self.get_bucket(pat)];
 
         if sa.len() == 0 {
@@ -361,14 +395,14 @@ impl<'a> SuffixArray<'a> {
     }
 }
 
-impl<'a> From<SuffixArray<'a>> for Vec<u32> {
-    fn from(sa: SuffixArray<'a>) -> Vec<u32> {
+impl From<SuffixArray> for Vec<u32> {
+    fn from(sa: SuffixArray) -> Vec<u32> {
         sa.sa
     }
 }
 
-impl<'a> AsRef<[u8]> for SuffixArray<'a> {
+impl AsRef<[u8]> for SuffixArray {
     fn as_ref(&self) -> &[u8] {
-        self.s
+        &self.s
     }
 }
